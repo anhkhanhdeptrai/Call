@@ -2,13 +2,12 @@
 import { ref } from "vue";
 import {
   StringeeClient,
-  StringeeCall,
-  StringeeCall2,
+  StringeeCall
 } from "stringee";
 
-// =========================
+// ===============================
 // STATE
-// =========================
+// ===============================
 
 const loggedIn = ref(false);
 
@@ -28,30 +27,27 @@ const isVideoCall = ref(false);
 const localVideo = ref(null);
 const remoteVideo = ref(null);
 
-// =========================
+let call = null;
+
+// ===============================
 // STRINGEE CLIENT
-// =========================
+// ===============================
 
 const stringeeClient = new StringeeClient();
 
-let call = null;
-
-// =========================
+// ===============================
 // CALL EVENTS
-// =========================
+// ===============================
 
 function settingCallEvent(call1) {
   if (!call1) {
-    console.error("CALL OBJECT IS NULL");
+    console.error("Call object không tồn tại");
     return;
   }
 
-  // -------------------------
   // Local stream
-  // -------------------------
-
   call1.on("addlocalstream", function (stream) {
-    console.log("addlocalstream", stream);
+    console.log("addlocalstream:", stream);
 
     if (localVideo.value) {
       localVideo.value.srcObject = null;
@@ -59,12 +55,9 @@ function settingCallEvent(call1) {
     }
   });
 
-  // -------------------------
   // Remote stream
-  // -------------------------
-
   call1.on("addremotestream", function (stream) {
-    console.log("addremotestream", stream);
+    console.log("addremotestream:", stream);
 
     if (remoteVideo.value) {
       remoteVideo.value.srcObject = null;
@@ -72,10 +65,7 @@ function settingCallEvent(call1) {
     }
   });
 
-  // -------------------------
   // Signaling
-  // -------------------------
-
   call1.on("signalingstate", function (state) {
     console.log("SIGNALING STATE:", state);
 
@@ -88,8 +78,8 @@ function settingCallEvent(call1) {
     if (state.code === 3) {
       console.log("CALL ACCEPTED");
 
-      isCalling.value = true;
       loading.value = false;
+      isCalling.value = true;
       hasIncomingCall.value = false;
     }
 
@@ -101,46 +91,33 @@ function settingCallEvent(call1) {
     ) {
       console.log("CALL ENDED");
 
-      isCalling.value = false;
       loading.value = false;
+      isCalling.value = false;
       hasIncomingCall.value = false;
     }
   });
 
-  // -------------------------
   // Media state
-  // -------------------------
-
   call1.on("mediastate", function (state) {
     console.log("MEDIA STATE:", state);
   });
 
-  // -------------------------
   // Info
-  // -------------------------
-
   call1.on("info", function (info) {
     console.log("CALL INFO:", info);
   });
 
-  // -------------------------
   // Error
-  // -------------------------
-
   call1.on("error", function (error) {
     console.error("CALL ERROR:", error);
 
     loading.value = false;
     isCalling.value = false;
 
-    let message = "Lỗi cuộc gọi";
-
-    if (error) {
-      message =
-        error.message ||
-        error.reason ||
-        JSON.stringify(error);
-    }
+    const message =
+      error?.message ||
+      error?.reason ||
+      JSON.stringify(error);
 
     callStatus.value = message;
 
@@ -148,30 +125,41 @@ function settingCallEvent(call1) {
   });
 }
 
-// =========================
-// CLIENT CONNECT
-// =========================
+// ===============================
+// STRINGEE CONNECT
+// ===============================
 
 stringeeClient.on("connect", () => {
-  console.log("Connected to StringeeServer");
+  console.log("Connected to Stringee Server");
+
+  callStatus.value =
+    "Đã kết nối Stringee Server";
 });
 
-// =========================
+// ===============================
 // AUTHENTICATION
-// =========================
+// ===============================
 
 stringeeClient.on("authen", (res) => {
   console.log("AUTHEN RESULT:", res);
 
   if (res.r === 0 || res.message === "SUCCESS") {
     loggedIn.value = true;
+    loading.value = false;
+
+    callStatus.value =
+      "Đăng nhập Stringee thành công";
 
     console.log(
-      "Đăng nhập Stringee thành công:",
+      "Stringee User ID:",
       username.value
     );
   } else {
     loggedIn.value = false;
+    loading.value = false;
+
+    callStatus.value =
+      res.message || "Đăng nhập thất bại";
 
     alert(
       "Đăng nhập Stringee thất bại:\n" +
@@ -180,40 +168,51 @@ stringeeClient.on("authen", (res) => {
   }
 });
 
-// =========================
+// ===============================
 // INCOMING CALL
-// =========================
+// ===============================
 
-stringeeClient.on("incomingcall", (incomingcall) => {
-  console.log("INCOMING CALL:", incomingcall);
+stringeeClient.on(
+  "incomingcall",
+  (incomingcall) => {
+    console.log(
+      "INCOMING CALL:",
+      incomingcall
+    );
 
-  call = incomingcall;
+    call = incomingcall;
 
-  settingCallEvent(incomingcall);
+    settingCallEvent(incomingcall);
 
-  hasIncomingCall.value = true;
-  isCalling.value = false;
-  loading.value = false;
+    hasIncomingCall.value = true;
+    isCalling.value = false;
+    loading.value = false;
 
-  isVideoCall.value =
-    incomingcall.isVideoCall || false;
+    isVideoCall.value =
+      incomingcall.isVideoCall || false;
 
-  friendName.value =
-    incomingcall.fromNumber || "Người gọi";
-});
+    friendName.value =
+      incomingcall.fromNumber ||
+      "Người gọi";
 
-// =========================
+    callStatus.value =
+      "Có cuộc gọi đến";
+  }
+);
+
+// ===============================
 // LOGIN
-// =========================
+// ===============================
 
 const onLogin = async () => {
   if (!username.value.trim()) {
-    alert("Vui lòng nhập User ID");
+    alert("Vui lòng nhập Stringee User ID");
     return;
   }
 
   loading.value = true;
-  callStatus.value = "Đang đăng nhập...";
+  callStatus.value =
+    "Đang lấy access token...";
 
   try {
     const endpoint =
@@ -225,42 +224,49 @@ const onLogin = async () => {
       );
     }
 
-    // Không thêm ?u nếu endpoint đã có query
-    const separator = endpoint.includes("?")
-      ? "&"
-      : "?";
+    const separator =
+      endpoint.includes("?")
+        ? "&"
+        : "?";
 
     const url =
-      `${endpoint}${separator}u=${encodeURIComponent(
+      endpoint +
+      separator +
+      "u=" +
+      encodeURIComponent(
         username.value.trim()
-      )}`;
+      );
 
     console.log("JWT URL:", url);
 
-    const res = await fetch(url);
+    const response =
+      await fetch(url);
 
-    if (!res.ok) {
+    if (!response.ok) {
       throw new Error(
-        `HTTP ${res.status}`
+        `HTTP ${response.status}`
       );
     }
 
-    const data = await res.json();
+    const data =
+      await response.json();
 
-    console.log("TOKEN RESPONSE:", data);
+    console.log(
+      "TOKEN RESPONSE:",
+      data
+    );
 
     if (!data.access_token) {
       throw new Error(
-        "Server không trả access_token"
+        "Backend không trả access_token"
       );
     }
 
     accessToken.value =
       data.access_token;
 
-    console.log(
-      "Connecting Stringee..."
-    );
+    callStatus.value =
+      "Đang kết nối Stringee...";
 
     stringeeClient.connect(
       accessToken.value
@@ -273,16 +279,19 @@ const onLogin = async () => {
 
     loading.value = false;
 
+    callStatus.value =
+      error.message;
+
     alert(
-      "Không thể đăng nhập:\n" +
+      "Đăng nhập thất bại:\n" +
         error.message
     );
   }
 };
 
-// =========================
-// OUTGOING CALL
-// =========================
+// ===============================
+// MAKE CALL
+// ===============================
 
 const onCall = async (
   videoCall = false
@@ -300,7 +309,7 @@ const onCall = async (
 
   if (!friendUsername.value.trim()) {
     alert(
-      "Vui lòng nhập ID người nhận"
+      "Vui lòng nhập User ID người nhận"
     );
     return;
   }
@@ -319,21 +328,26 @@ const onCall = async (
   }
 
   loading.value = true;
-  isVideoCall.value = videoCall;
+
+  isVideoCall.value =
+    videoCall;
+
+  friendName.value = to;
+
   callStatus.value =
     "Đang tạo cuộc gọi...";
 
   console.log(
-    "========================"
+    "=============================="
   );
 
   console.log(
-    "CALL FROM:",
+    "FROM:",
     from
   );
 
   console.log(
-    "CALL TO:",
+    "TO:",
     to
   );
 
@@ -343,54 +357,30 @@ const onCall = async (
   );
 
   console.log(
-    "========================"
+    "=============================="
   );
 
   try {
-    // =======================
-    // VOICE CALL
-    // =======================
+    /*
+     * StringeeCall:
+     *
+     * false = voice
+     * true  = video
+     */
 
-    if (!videoCall) {
-      console.log(
-        "Creating StringeeCall..."
-      );
+    call = new StringeeCall(
+      stringeeClient,
+      from,
+      to,
+      videoCall
+    );
 
-      call = new StringeeCall(
-        stringeeClient,
-        from,
-        to
-      );
-    }
-
-    // =======================
-    // VIDEO CALL
-    // =======================
-
-    else {
-      console.log(
-        "Creating StringeeCall2..."
-      );
-
-      call = new StringeeCall2(
-        stringeeClient,
-        from,
-        to,
-        true
-      );
-    }
-
-    if (!call) {
-      throw new Error(
-        "Không tạo được call object"
-      );
-    }
+    console.log(
+      "CALL OBJECT:",
+      call
+    );
 
     settingCallEvent(call);
-
-    // =======================
-    // MAKE CALL
-    // =======================
 
     call.makeCall(function (res) {
       console.log(
@@ -398,25 +388,23 @@ const onCall = async (
         res
       );
 
-      // Thành công
+      /*
+       * r = 0 => request thành công
+       */
+
       if (res.r === 0) {
         console.log(
           "CALL REQUEST SUCCESS"
         );
 
-        friendName.value =
-          res.toNumber || to;
+        loading.value = true;
 
         callStatus.value =
           "Đang chờ người nhận...";
 
-        // Không set isCalling=true
-        // ở đây.
-        // Chờ signalingstate code 3.
-      }
-
-      // Thất bại
-      else {
+        friendName.value =
+          res.toNumber || to;
+      } else {
         console.error(
           "MAKE CALL FAILED:",
           res
@@ -444,7 +432,7 @@ const onCall = async (
     });
   } catch (error) {
     console.error(
-      "MAKE CALL EXCEPTION:",
+      "CALL EXCEPTION:",
       error
     );
 
@@ -461,9 +449,9 @@ const onCall = async (
   }
 };
 
-// =========================
-// ACCEPT
-// =========================
+// ===============================
+// ANSWER
+// ===============================
 
 const acceptCall = () => {
   if (!call) {
@@ -472,10 +460,6 @@ const acceptCall = () => {
     );
     return;
   }
-
-  console.log(
-    "ANSWER CALL"
-  );
 
   loading.value = true;
 
@@ -490,10 +474,11 @@ const acceptCall = () => {
         false;
 
       isCalling.value = true;
+
       loading.value = false;
 
       callStatus.value =
-        "Đã kết nối";
+        "Đã kết nối cuộc gọi";
     } else {
       loading.value = false;
 
@@ -506,18 +491,14 @@ const acceptCall = () => {
   });
 };
 
-// =========================
+// ===============================
 // REJECT
-// =========================
+// ===============================
 
 const rejectCall = () => {
   if (!call) {
     return;
   }
-
-  console.log(
-    "REJECT CALL"
-  );
 
   call.reject(function (res) {
     console.log(
@@ -536,18 +517,14 @@ const rejectCall = () => {
   });
 };
 
-// =========================
-// HANG UP
-// =========================
+// ===============================
+// HANGUP
+// ===============================
 
 const hangupCall = () => {
   if (!call) {
     return;
   }
-
-  console.log(
-    "HANGUP CALL"
-  );
 
   call.hangup(function (res) {
     console.log(
@@ -555,8 +532,8 @@ const hangupCall = () => {
       res
     );
 
-    isCalling.value = false;
     loading.value = false;
+    isCalling.value = false;
     hasIncomingCall.value = false;
 
     callStatus.value =
@@ -564,27 +541,6 @@ const hangupCall = () => {
 
     friendName.value = "";
   });
-};
-
-// =========================
-// UPGRADE VOICE -> VIDEO
-// =========================
-
-const upgradeToVideoCall = () => {
-  if (!call) {
-    return;
-  }
-
-  try {
-    call.upgradeToVideoCall();
-
-    isVideoCall.value = true;
-  } catch (error) {
-    console.error(
-      "UPGRADE VIDEO ERROR:",
-      error
-    );
-  }
 };
 </script>
 
@@ -597,9 +553,7 @@ const upgradeToVideoCall = () => {
           Demo: Voice Call & Video Call
         </h1>
 
-        <!-- ===================== -->
         <!-- STATUS -->
-        <!-- ===================== -->
 
         <div class="alert alert-info">
           <strong>Trạng thái:</strong>
@@ -611,9 +565,7 @@ const upgradeToVideoCall = () => {
           }}
         </div>
 
-        <!-- ===================== -->
         <!-- LOGIN -->
-        <!-- ===================== -->
 
         <form
           v-if="!loggedIn"
@@ -630,11 +582,11 @@ const upgradeToVideoCall = () => {
 
             <input
               id="username"
-              type="text"
               v-model="username"
+              type="text"
               class="form-control"
               placeholder="Ví dụ: user_a"
-              autofocus
+              autocomplete="off"
               required
               :disabled="loading"
             />
@@ -654,9 +606,7 @@ const upgradeToVideoCall = () => {
           </button>
         </form>
 
-        <!-- ===================== -->
-        <!-- CALL FORM -->
-        <!-- ===================== -->
+        <!-- CALL -->
 
         <form
           v-else
@@ -666,28 +616,24 @@ const upgradeToVideoCall = () => {
           <div class="mb-3">
 
             <label
-              for="friend-username"
+              for="friendUsername"
               class="form-label"
             >
               User ID người nhận
             </label>
 
             <input
-              id="friend-username"
-              type="text"
+              id="friendUsername"
               v-model="friendUsername"
+              type="text"
               class="form-control"
               placeholder="Ví dụ: user_b"
-              :disabled="
-                isCalling || loading
-              "
+              autocomplete="off"
               required
+              :disabled="
+                loading || isCalling
+              "
             />
-
-            <div class="form-text">
-              Nhập Stringee User ID của người
-              muốn gọi.
-            </div>
 
           </div>
 
@@ -719,35 +665,25 @@ const upgradeToVideoCall = () => {
             "
             @click="onCall(true)"
           >
-            🎥
-
-            {{
-              loading
-                ? "Đang gọi..."
-                : "Gọi video"
-            }}
+            🎥 Gọi video
           </button>
 
         </form>
 
-        <!-- ===================== -->
         <!-- CALL STATUS -->
-        <!-- ===================== -->
 
         <div
           v-if="callStatus"
           class="alert alert-secondary mt-3"
         >
           <strong>
-            Trạng thái cuộc gọi:
+            Trạng thái:
           </strong>
 
           {{ callStatus }}
         </div>
 
-        <!-- ===================== -->
-        <!-- INCOMING CALL -->
-        <!-- ===================== -->
+        <!-- INCOMING -->
 
         <div
           v-if="hasIncomingCall"
@@ -759,7 +695,8 @@ const upgradeToVideoCall = () => {
           </h5>
 
           <p>
-            Bạn nhận được cuộc gọi từ:
+            Người gọi:
+
             <strong>
               {{ friendName }}
             </strong>
@@ -783,9 +720,7 @@ const upgradeToVideoCall = () => {
 
         </div>
 
-        <!-- ===================== -->
         <!-- ACTIVE CALL -->
-        <!-- ===================== -->
 
         <div
           v-if="isCalling"
@@ -797,14 +732,11 @@ const upgradeToVideoCall = () => {
           </h5>
 
           <p>
-            Đang gọi với:
+            Người nhận:
+
             <strong>
               {{ friendName }}
             </strong>
-          </p>
-
-          <p v-if="callStatus">
-            {{ callStatus }}
           </p>
 
           <button
@@ -816,12 +748,13 @@ const upgradeToVideoCall = () => {
 
         </div>
 
-        <!-- ===================== -->
         <!-- VIDEO -->
-        <!-- ===================== -->
 
         <div
-          v-if="isCalling && isVideoCall"
+          v-if="
+            isCalling &&
+            isVideoCall
+          "
           class="mt-4"
         >
 
@@ -829,11 +762,9 @@ const upgradeToVideoCall = () => {
             Video
           </h5>
 
-          <div
-            class="d-flex flex-wrap gap-3"
-          >
+          <div class="row">
 
-            <div>
+            <div class="col-md-6">
               <p>
                 Camera của bạn
               </p>
@@ -844,14 +775,13 @@ const upgradeToVideoCall = () => {
                 muted
                 playsinline
                 style="
-                  width: 300px;
-                  max-width: 100%;
+                  width: 100%;
                   background: #000;
                 "
               ></video>
             </div>
 
-            <div>
+            <div class="col-md-6">
               <p>
                 Camera người nhận
               </p>
@@ -861,8 +791,7 @@ const upgradeToVideoCall = () => {
                 autoplay
                 playsinline
                 style="
-                  width: 300px;
-                  max-width: 100%;
+                  width: 100%;
                   background: #000;
                 "
               ></video>
