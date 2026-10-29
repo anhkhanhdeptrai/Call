@@ -5,225 +5,440 @@ import {
   StringeeCall
 } from "stringee";
 
-// ===============================
+// =====================================================
 // STATE
-// ===============================
-
-const loggedIn = ref(false);
+// =====================================================
 
 const username = ref("");
 const friendUsername = ref("");
 
-const accessToken = ref("");
-
-const callStatus = ref("");
-const friendName = ref("");
-
+const loggedIn = ref(false);
 const loading = ref(false);
-const isCalling = ref(false);
+
+const callStatus = ref("Chưa kết nối");
+
 const hasIncomingCall = ref(false);
+const isCalling = ref(false);
 const isVideoCall = ref(false);
+
+const callerName = ref("");
 
 const localVideo = ref(null);
 const remoteVideo = ref(null);
 
 let call = null;
 
-// ===============================
+// =====================================================
 // STRINGEE CLIENT
-// ===============================
+// =====================================================
 
 const stringeeClient = new StringeeClient();
 
-// ===============================
-// CALL EVENTS
-// ===============================
+// =====================================================
+// HELPER
+// =====================================================
 
-function settingCallEvent(call1) {
-  if (!call1) {
-    console.error("Call object không tồn tại");
+function showResult(title, res) {
+  console.log("=================================");
+  console.log(title);
+  console.log("FULL RESULT:", res);
+  console.log("CODE r:", res?.r);
+  console.log("MESSAGE:", res?.message);
+  console.log("REASON:", res?.reason);
+  console.log("JSON:", JSON.stringify(res));
+  console.log("=================================");
+
+  const code =
+    res?.r !== undefined
+      ? res.r
+      : "unknown";
+
+  const message =
+    res?.message ||
+    res?.reason ||
+    "Không có message";
+
+  callStatus.value =
+    `${title}: code=${code}, message=${message}`;
+}
+
+// =====================================================
+// CALL EVENT
+// =====================================================
+
+function settingCallEvent(callObject) {
+  if (!callObject) {
+    console.error(
+      "CALL OBJECT KHÔNG TỒN TẠI"
+    );
     return;
   }
 
-  // Local stream
-  call1.on("addlocalstream", function (stream) {
-    console.log("addlocalstream:", stream);
+  console.log(
+    "Đăng ký event cho call:",
+    callObject
+  );
 
-    if (localVideo.value) {
-      localVideo.value.srcObject = null;
-      localVideo.value.srcObject = stream;
+  // ---------------------------------------------------
+  // LOCAL STREAM
+  // ---------------------------------------------------
+
+  callObject.on(
+    "addlocalstream",
+    (stream) => {
+      console.log(
+        "ADD LOCAL STREAM:",
+        stream
+      );
+
+      if (localVideo.value) {
+        localVideo.value.srcObject =
+          stream;
+
+        localVideo.value.play()
+          .catch(() => {});
+      }
     }
-  });
+  );
 
-  // Remote stream
-  call1.on("addremotestream", function (stream) {
-    console.log("addremotestream:", stream);
+  // ---------------------------------------------------
+  // REMOTE STREAM
+  // ---------------------------------------------------
 
-    if (remoteVideo.value) {
-      remoteVideo.value.srcObject = null;
-      remoteVideo.value.srcObject = stream;
+  callObject.on(
+    "addremotestream",
+    (stream) => {
+      console.log(
+        "ADD REMOTE STREAM:",
+        stream
+      );
+
+      if (remoteVideo.value) {
+        remoteVideo.value.srcObject =
+          stream;
+
+        remoteVideo.value.play()
+          .catch(() => {});
+      }
     }
-  });
+  );
 
-  // Signaling
-  call1.on("signalingstate", function (state) {
-    console.log("SIGNALING STATE:", state);
+  // ---------------------------------------------------
+  // SIGNALING STATE
+  // ---------------------------------------------------
 
-    callStatus.value =
-      state.reason ||
-      state.message ||
-      "";
+  callObject.on(
+    "signalingstate",
+    (state) => {
+      console.log(
+        "SIGNALING STATE:",
+        state
+      );
 
-    // Call accepted
-    if (state.code === 3) {
-      console.log("CALL ACCEPTED");
+      console.log(
+        "SIGNALING JSON:",
+        JSON.stringify(state)
+      );
+
+      if (state?.reason) {
+        callStatus.value =
+          state.reason;
+      }
+
+      /*
+       * Một số trạng thái Stringee:
+       * code có thể thay đổi tùy SDK.
+       *
+       * Vì vậy không phụ thuộc hoàn toàn
+       * vào một code duy nhất.
+       */
+
+      const reason =
+        String(
+          state?.reason ||
+          state?.message ||
+          ""
+        ).toLowerCase();
+
+      if (
+        reason.includes("accept") ||
+        reason.includes("answer") ||
+        reason.includes("connected")
+      ) {
+        loading.value = false;
+        isCalling.value = true;
+        hasIncomingCall.value = false;
+      }
+
+      if (
+        reason.includes("hangup") ||
+        reason.includes("ended") ||
+        reason.includes("reject") ||
+        reason.includes("busy") ||
+        reason.includes("cancel")
+      ) {
+        resetCall();
+      }
+    }
+  );
+
+  // ---------------------------------------------------
+  // MEDIA STATE
+  // ---------------------------------------------------
+
+  callObject.on(
+    "mediastate",
+    (state) => {
+      console.log(
+        "MEDIA STATE:",
+        state
+      );
+    }
+  );
+
+  // ---------------------------------------------------
+  // INFO
+  // ---------------------------------------------------
+
+  callObject.on(
+    "info",
+    (info) => {
+      console.log(
+        "CALL INFO:",
+        info
+      );
+    }
+  );
+
+  // ---------------------------------------------------
+  // ERROR
+  // ---------------------------------------------------
+
+  callObject.on(
+    "error",
+    (error) => {
+      console.error(
+        "CALL ERROR:",
+        error
+      );
+
+      console.error(
+        "CALL ERROR JSON:",
+        JSON.stringify(error)
+      );
 
       loading.value = false;
-      isCalling.value = true;
-      hasIncomingCall.value = false;
+
+      callStatus.value =
+        "CALL ERROR: " +
+        (
+          error?.message ||
+          error?.reason ||
+          JSON.stringify(error)
+        );
     }
-
-    // Call ended
-    if (
-      state.code === 4 ||
-      state.code === 5 ||
-      state.code === 6
-    ) {
-      console.log("CALL ENDED");
-
-      loading.value = false;
-      isCalling.value = false;
-      hasIncomingCall.value = false;
-    }
-  });
-
-  // Media state
-  call1.on("mediastate", function (state) {
-    console.log("MEDIA STATE:", state);
-  });
-
-  // Info
-  call1.on("info", function (info) {
-    console.log("CALL INFO:", info);
-  });
-
-  // Error
-  call1.on("error", function (error) {
-    console.error("CALL ERROR:", error);
-
-    loading.value = false;
-    isCalling.value = false;
-
-    const message =
-      error?.message ||
-      error?.reason ||
-      JSON.stringify(error);
-
-    callStatus.value = message;
-
-    alert("Lỗi cuộc gọi:\n" + message);
-  });
+  );
 }
 
-// ===============================
-// STRINGEE CONNECT
-// ===============================
+// =====================================================
+// RESET CALL
+// =====================================================
 
-stringeeClient.on("connect", () => {
-  console.log("Connected to Stringee Server");
+function resetCall() {
+  console.log(
+    "RESET CALL"
+  );
 
-  callStatus.value =
-    "Đã kết nối Stringee Server";
-});
+  loading.value = false;
+  isCalling.value = false;
+  hasIncomingCall.value = false;
 
-// ===============================
-// AUTHENTICATION
-// ===============================
+  callerName.value = "";
 
-stringeeClient.on("authen", (res) => {
-  console.log("AUTHEN RESULT:", res);
-
-  if (res.r === 0 || res.message === "SUCCESS") {
-    loggedIn.value = true;
-    loading.value = false;
-
-    callStatus.value =
-      "Đăng nhập Stringee thành công";
-
-    console.log(
-      "Stringee User ID:",
-      username.value
-    );
-  } else {
-    loggedIn.value = false;
-    loading.value = false;
-
-    callStatus.value =
-      res.message || "Đăng nhập thất bại";
-
-    alert(
-      "Đăng nhập Stringee thất bại:\n" +
-        (res.message || JSON.stringify(res))
-    );
+  if (localVideo.value) {
+    localVideo.value.srcObject =
+      null;
   }
-});
 
-// ===============================
-// INCOMING CALL
-// ===============================
+  if (remoteVideo.value) {
+    remoteVideo.value.srcObject =
+      null;
+  }
+
+  call = null;
+}
+
+// =====================================================
+// STRINGEE CONNECT
+// =====================================================
 
 stringeeClient.on(
-  "incomingcall",
-  (incomingcall) => {
+  "connect",
+  () => {
     console.log(
-      "INCOMING CALL:",
-      incomingcall
+      "STRINGEE CONNECTED"
     );
 
-    call = incomingcall;
-
-    settingCallEvent(incomingcall);
-
-    hasIncomingCall.value = true;
-    isCalling.value = false;
-    loading.value = false;
-
-    isVideoCall.value =
-      incomingcall.isVideoCall || false;
-
-    friendName.value =
-      incomingcall.fromNumber ||
-      "Người gọi";
-
     callStatus.value =
-      "Có cuộc gọi đến";
+      "Đã kết nối Stringee Server";
   }
 );
 
-// ===============================
-// LOGIN
-// ===============================
+// =====================================================
+// AUTHEN
+// =====================================================
 
-const onLogin = async () => {
-  if (!username.value.trim()) {
-    alert("Vui lòng nhập Stringee User ID");
+stringeeClient.on(
+  "authen",
+  (res) => {
+    showResult(
+      "AUTHEN RESULT",
+      res
+    );
+
+    loading.value = false;
+
+    if (
+      res &&
+      (
+        res.r === 0 ||
+        res.message === "SUCCESS"
+      )
+    ) {
+      loggedIn.value = true;
+
+      callStatus.value =
+        "Đăng nhập Stringee thành công";
+
+      console.log(
+        "USER ID:",
+        username.value
+      );
+    } else {
+      loggedIn.value = false;
+
+      callStatus.value =
+        "Đăng nhập thất bại: " +
+        (
+          res?.message ||
+          "Unknown error"
+        );
+
+      alert(
+        "Đăng nhập Stringee thất bại\n\n" +
+        "Code: " +
+        res?.r +
+        "\n" +
+        "Message: " +
+        (
+          res?.message ||
+          "Không có message"
+        )
+      );
+    }
+  }
+);
+
+// =====================================================
+// INCOMING CALL
+// =====================================================
+
+function handleIncomingCall(
+  incomingCall
+) {
+  console.log(
+    "================================="
+  );
+
+  console.log(
+    "INCOMING CALL"
+  );
+
+  console.log(
+    "CALL:",
+    incomingCall
+  );
+
+  console.log(
+    "================================="
+  );
+
+  call =
+    incomingCall;
+
+  settingCallEvent(
+    incomingCall
+  );
+
+  hasIncomingCall.value =
+    true;
+
+  isCalling.value =
+    false;
+
+  loading.value =
+    false;
+
+  callerName.value =
+    incomingCall.fromNumber ||
+    incomingCall.from ||
+    "Người gọi";
+
+  isVideoCall.value =
+    !!(
+      incomingCall.isVideoCall
+    );
+
+  callStatus.value =
+    "Có cuộc gọi đến từ " +
+    callerName.value;
+}
+
+// Voice incoming
+stringeeClient.on(
+  "incomingcall",
+  handleIncomingCall
+);
+
+// Video/Call2 incoming nếu SDK phát event này
+stringeeClient.on(
+  "incomingcall2",
+  handleIncomingCall
+);
+
+// =====================================================
+// LOGIN
+// =====================================================
+
+async function onLogin() {
+  if (
+    !username.value.trim()
+  ) {
+    alert(
+      "Vui lòng nhập Stringee User ID"
+    );
+
+    return;
+  }
+
+  const endpoint =
+    import.meta.env
+      .VITE_JWT_ENDPOINT;
+
+  if (!endpoint) {
+    alert(
+      "Thiếu VITE_JWT_ENDPOINT"
+    );
+
     return;
   }
 
   loading.value = true;
+
   callStatus.value =
     "Đang lấy access token...";
 
   try {
-    const endpoint =
-      import.meta.env.VITE_JWT_ENDPOINT;
-
-    if (!endpoint) {
-      throw new Error(
-        "Chưa cấu hình VITE_JWT_ENDPOINT"
-      );
-    }
-
     const separator =
       endpoint.includes("?")
         ? "&"
@@ -237,10 +452,18 @@ const onLogin = async () => {
         username.value.trim()
       );
 
-    console.log("JWT URL:", url);
+    console.log(
+      "TOKEN URL:",
+      url
+    );
 
     const response =
       await fetch(url);
+
+    console.log(
+      "TOKEN HTTP STATUS:",
+      response.status
+    );
 
     if (!response.ok) {
       throw new Error(
@@ -256,20 +479,20 @@ const onLogin = async () => {
       data
     );
 
-    if (!data.access_token) {
+    if (
+      !data ||
+      !data.access_token
+    ) {
       throw new Error(
         "Backend không trả access_token"
       );
     }
 
-    accessToken.value =
-      data.access_token;
-
     callStatus.value =
       "Đang kết nối Stringee...";
 
     stringeeClient.connect(
-      accessToken.value
+      data.access_token
     );
   } catch (error) {
     console.error(
@@ -280,37 +503,46 @@ const onLogin = async () => {
     loading.value = false;
 
     callStatus.value =
+      "LOGIN ERROR: " +
       error.message;
 
     alert(
-      "Đăng nhập thất bại:\n" +
-        error.message
+      "Lỗi đăng nhập\n\n" +
+      error.message
     );
   }
-};
+}
 
-// ===============================
+// =====================================================
 // MAKE CALL
-// ===============================
+// =====================================================
 
-const onCall = async (
-  videoCall = false
-) => {
-  if (loading.value || isCalling.value) {
-    return;
-  }
-
+function onCall(
+  video = false
+) {
   if (!loggedIn.value) {
     alert(
       "Bạn chưa đăng nhập Stringee"
     );
+
     return;
   }
 
-  if (!friendUsername.value.trim()) {
+  if (loading.value) {
+    return;
+  }
+
+  if (isCalling.value) {
+    return;
+  }
+
+  if (
+    !friendUsername.value.trim()
+  ) {
     alert(
       "Vui lòng nhập User ID người nhận"
     );
+
     return;
   }
 
@@ -324,21 +556,16 @@ const onCall = async (
     alert(
       "Không thể gọi cho chính mình"
     );
+
     return;
   }
 
-  loading.value = true;
-
-  isVideoCall.value =
-    videoCall;
-
-  friendName.value = to;
-
-  callStatus.value =
-    "Đang tạo cuộc gọi...";
+  console.log(
+    "================================="
+  );
 
   console.log(
-    "=============================="
+    "MAKE CALL"
   );
 
   console.log(
@@ -353,12 +580,25 @@ const onCall = async (
 
   console.log(
     "VIDEO:",
-    videoCall
+    video
   );
 
   console.log(
-    "=============================="
+    "================================="
   );
+
+  loading.value = true;
+
+  isVideoCall.value =
+    video;
+
+  callStatus.value =
+    video
+      ? "Đang gọi video..."
+      : "Đang gọi thoại...";
+
+  callerName.value =
+    to;
 
   try {
     /*
@@ -368,234 +608,283 @@ const onCall = async (
      * true  = video
      */
 
-    call = new StringeeCall(
-      stringeeClient,
-      from,
-      to,
-      videoCall
-    );
+    call =
+      new StringeeCall(
+        stringeeClient,
+        from,
+        to,
+        video
+      );
 
     console.log(
-      "CALL OBJECT:",
+      "CREATED CALL:",
       call
     );
 
-    settingCallEvent(call);
+    settingCallEvent(
+      call
+    );
 
-    call.makeCall(function (res) {
-      console.log(
-        "MAKE CALL RESULT:",
-        res
-      );
-
-      /*
-       * r = 0 => request thành công
-       */
-
-      if (res.r === 0) {
-        console.log(
-          "CALL REQUEST SUCCESS"
-        );
-
-        loading.value = true;
-
-        callStatus.value =
-          "Đang chờ người nhận...";
-
-        friendName.value =
-          res.toNumber || to;
-      } else {
-        console.error(
-          "MAKE CALL FAILED:",
+    call.makeCall(
+      (res) => {
+        showResult(
+          "MAKE CALL RESULT",
           res
         );
 
-        loading.value = false;
-        isCalling.value = false;
+        /*
+         * Đây là phần quan trọng
+         * để bắt lỗi CODE 18.
+         */
 
-        const message =
-          res.message ||
-          "Không thể thực hiện cuộc gọi";
+        if (
+          res &&
+          res.r === 0
+        ) {
+          loading.value =
+            true;
 
-        callStatus.value =
-          message;
+          isCalling.value =
+            false;
 
-        alert(
-          "Gọi thất bại!\n\n" +
+          callStatus.value =
+            "Đang chờ " +
+            to +
+            " nhận cuộc gọi...";
+        } else {
+          loading.value =
+            false;
+
+          isCalling.value =
+            false;
+
+          const message =
+            res?.message ||
+            res?.reason ||
+            "Unknown error";
+
+          callStatus.value =
+            "Gọi thất bại: " +
+            message;
+
+          /*
+           * Hiện đầy đủ dữ liệu lỗi
+           */
+
+          alert(
+            "GỌI THẤT BẠI\n\n" +
             "Code: " +
-            res.r +
-            "\n" +
-            "Message: " +
-            message
-        );
+            res?.r +
+            "\n\n" +
+            "Message:\n" +
+            message +
+            "\n\n" +
+            "Xem Console để biết FULL RESULT."
+          );
+        }
       }
-    });
+    );
   } catch (error) {
     console.error(
-      "CALL EXCEPTION:",
+      "MAKE CALL EXCEPTION:",
       error
     );
 
-    loading.value = false;
-    isCalling.value = false;
+    loading.value =
+      false;
+
+    isCalling.value =
+      false;
 
     callStatus.value =
+      "Exception: " +
       error.message;
 
     alert(
-      "Lỗi tạo cuộc gọi:\n" +
-        error.message
+      "Lỗi tạo cuộc gọi\n\n" +
+      error.message
     );
   }
-};
+}
 
-// ===============================
-// ANSWER
-// ===============================
+// =====================================================
+// ACCEPT CALL
+// =====================================================
 
-const acceptCall = () => {
+function acceptCall() {
   if (!call) {
     alert(
       "Không tìm thấy cuộc gọi"
     );
+
     return;
   }
+
+  console.log(
+    "ACCEPT CALL:",
+    call
+  );
 
   loading.value = true;
 
-  call.answer(function (res) {
-    console.log(
-      "ANSWER RESULT:",
-      res
-    );
+  call.answer(
+    (res) => {
+      showResult(
+        "ANSWER RESULT",
+        res
+      );
 
-    if (res.r === 0) {
-      hasIncomingCall.value =
-        false;
+      if (
+        res &&
+        res.r === 0
+      ) {
+        loading.value =
+          false;
 
-      isCalling.value = true;
+        hasIncomingCall.value =
+          false;
 
-      loading.value = false;
+        isCalling.value =
+          true;
+
+        callStatus.value =
+          "Đã trả lời cuộc gọi";
+      } else {
+        loading.value =
+          false;
+
+        alert(
+          "Trả lời thất bại\n\n" +
+          "Code: " +
+          res?.r +
+          "\n" +
+          "Message: " +
+          (
+            res?.message ||
+            "Unknown error"
+          )
+        );
+      }
+    }
+  );
+}
+
+// =====================================================
+// REJECT CALL
+// =====================================================
+
+function rejectCall() {
+  if (!call) {
+    return;
+  }
+
+  console.log(
+    "REJECT CALL"
+  );
+
+  call.reject(
+    (res) => {
+      showResult(
+        "REJECT RESULT",
+        res
+      );
+
+      resetCall();
 
       callStatus.value =
-        "Đã kết nối cuộc gọi";
-    } else {
-      loading.value = false;
-
-      alert(
-        "Không thể trả lời:\n" +
-          (res.message ||
-            JSON.stringify(res))
-      );
+        "Đã từ chối cuộc gọi";
     }
-  });
-};
+  );
+}
 
-// ===============================
-// REJECT
-// ===============================
-
-const rejectCall = () => {
-  if (!call) {
-    return;
-  }
-
-  call.reject(function (res) {
-    console.log(
-      "REJECT RESULT:",
-      res
-    );
-
-    hasIncomingCall.value =
-      false;
-
-    loading.value = false;
-    isCalling.value = false;
-
-    callStatus.value =
-      "Đã từ chối cuộc gọi";
-  });
-};
-
-// ===============================
+// =====================================================
 // HANGUP
-// ===============================
+// =====================================================
 
-const hangupCall = () => {
+function hangupCall() {
   if (!call) {
+    resetCall();
+
     return;
   }
 
-  call.hangup(function (res) {
-    console.log(
-      "HANGUP RESULT:",
-      res
-    );
+  console.log(
+    "HANGUP CALL"
+  );
 
-    loading.value = false;
-    isCalling.value = false;
-    hasIncomingCall.value = false;
+  call.hangup(
+    (res) => {
+      showResult(
+        "HANGUP RESULT",
+        res
+      );
 
-    callStatus.value =
-      "Đã kết thúc cuộc gọi";
+      resetCall();
 
-    friendName.value = "";
-  });
-};
+      callStatus.value =
+        "Đã kết thúc cuộc gọi";
+    }
+  );
+}
 </script>
 
 <template>
   <div class="container py-4">
+
     <div class="row">
+
       <div class="col-md-8 mx-auto">
 
-        <h1 class="mb-4">
-          Demo: Voice Call & Video Call
-        </h1>
+        <h2 class="mb-4">
+          Stringee Voice / Video Call
+        </h2>
 
+        <!-- ========================= -->
         <!-- STATUS -->
+        <!-- ========================= -->
 
         <div class="alert alert-info">
-          <strong>Trạng thái:</strong>
 
-          {{
-            loggedIn
-              ? `Đã đăng nhập (${username})`
-              : "Chưa đăng nhập"
-          }}
-        </div>
+          <strong>
+            Trạng thái:
+          </strong>
 
-        <!-- LOGIN -->
-
-        <form
-          v-if="!loggedIn"
-          @submit.prevent="onLogin"
-        >
-          <div class="mb-3">
-
-            <label
-              for="username"
-              class="form-label"
-            >
-              Stringee User ID
-            </label>
-
-            <input
-              id="username"
-              v-model="username"
-              type="text"
-              class="form-control"
-              placeholder="Ví dụ: user_a"
-              autocomplete="off"
-              required
-              :disabled="loading"
-            />
-
+          <div class="mt-1">
+            {{ callStatus }}
           </div>
 
+        </div>
+
+        <!-- ========================= -->
+        <!-- LOGIN -->
+        <!-- ========================= -->
+
+        <div
+          v-if="!loggedIn"
+          class="card p-3"
+        >
+
+          <h5>
+            Đăng nhập
+          </h5>
+
+          <label
+            class="form-label mt-2"
+          >
+            Stringee User ID
+          </label>
+
+          <input
+            v-model="username"
+            class="form-control"
+            placeholder="user_a"
+            autocomplete="off"
+            :disabled="loading"
+          />
+
           <button
-            type="submit"
-            class="btn btn-primary"
+            class="btn btn-primary mt-3"
+            @click="onLogin"
             :disabled="loading"
           >
             {{
@@ -604,151 +893,179 @@ const hangupCall = () => {
                 : "Đăng nhập"
             }}
           </button>
-        </form>
 
-        <!-- CALL -->
+        </div>
 
-        <form
+        <!-- ========================= -->
+        <!-- CALL PANEL -->
+        <!-- ========================= -->
+
+        <div
           v-else
-          @submit.prevent="onCall(false)"
+          class="card p-3"
         >
+
+          <h5>
+            Gọi điện
+          </h5>
 
           <div class="mb-3">
 
             <label
-              for="friendUsername"
               class="form-label"
             >
               User ID người nhận
             </label>
 
             <input
-              id="friendUsername"
               v-model="friendUsername"
-              type="text"
               class="form-control"
-              placeholder="Ví dụ: user_b"
+              placeholder="user_b"
               autocomplete="off"
-              required
               :disabled="
-                loading || isCalling
+                loading ||
+                isCalling
               "
             />
 
           </div>
 
-          <!-- VOICE -->
+          <div>
 
-          <button
-            type="submit"
-            class="btn btn-primary"
-            :disabled="
-              loading || isCalling
-            "
-          >
-            📞
+            <!-- VOICE -->
 
-            {{
-              loading
-                ? "Đang gọi..."
-                : "Gọi thoại"
-            }}
-          </button>
+            <button
+              class="btn btn-primary me-2"
+              @click="onCall(false)"
+              :disabled="
+                loading ||
+                isCalling
+              "
+            >
+              📞 Gọi thoại
+            </button>
 
-          <!-- VIDEO -->
+            <!-- VIDEO -->
 
-          <button
-            type="button"
-            class="btn btn-secondary ms-3"
-            :disabled="
-              loading || isCalling
-            "
-            @click="onCall(true)"
-          >
-            🎥 Gọi video
-          </button>
+            <button
+              class="btn btn-success"
+              @click="onCall(true)"
+              :disabled="
+                loading ||
+                isCalling
+              "
+            >
+              🎥 Gọi video
+            </button>
 
-        </form>
+          </div>
 
-        <!-- CALL STATUS -->
-
-        <div
-          v-if="callStatus"
-          class="alert alert-secondary mt-3"
-        >
-          <strong>
-            Trạng thái:
-          </strong>
-
-          {{ callStatus }}
         </div>
 
-        <!-- INCOMING -->
+        <!-- ========================= -->
+        <!-- INCOMING CALL -->
+        <!-- ========================= -->
 
         <div
           v-if="hasIncomingCall"
-          class="alert alert-warning mt-3"
+          class="card mt-3 border-warning"
         >
 
-          <h5>
-            📞 Cuộc gọi đến
-          </h5>
-
-          <p>
-            Người gọi:
-
-            <strong>
-              {{ friendName }}
-            </strong>
-          </p>
-
-          <button
-            class="btn btn-success me-3"
-            @click="acceptCall"
-            :disabled="loading"
+          <div
+            class="card-body"
           >
-            ☎️ Trả lời
-          </button>
 
-          <button
-            class="btn btn-danger"
-            @click="rejectCall"
-            :disabled="loading"
-          >
-            ❌ Từ chối
-          </button>
+            <h5>
+              📞 Cuộc gọi đến
+            </h5>
+
+            <p>
+              Người gọi:
+              <strong>
+                {{ callerName }}
+              </strong>
+            </p>
+
+            <p>
+              Loại:
+              <strong>
+                {{
+                  isVideoCall
+                    ? "Video"
+                    : "Thoại"
+                }}
+              </strong>
+            </p>
+
+            <button
+              class="btn btn-success me-2"
+              @click="acceptCall"
+              :disabled="loading"
+            >
+              ☎️ Trả lời
+            </button>
+
+            <button
+              class="btn btn-danger"
+              @click="rejectCall"
+              :disabled="loading"
+            >
+              ❌ Từ chối
+            </button>
+
+          </div>
 
         </div>
 
+        <!-- ========================= -->
         <!-- ACTIVE CALL -->
+        <!-- ========================= -->
 
         <div
           v-if="isCalling"
-          class="alert alert-success mt-3"
+          class="card mt-3 border-success"
         >
 
-          <h5>
-            🟢 Đang trong cuộc gọi
-          </h5>
-
-          <p>
-            Người nhận:
-
-            <strong>
-              {{ friendName }}
-            </strong>
-          </p>
-
-          <button
-            class="btn btn-danger"
-            @click="hangupCall"
+          <div
+            class="card-body"
           >
-            📵 Kết thúc
-          </button>
+
+            <h5>
+              🟢 Đang gọi
+            </h5>
+
+            <p>
+              Đang nói chuyện với:
+              <strong>
+                {{ callerName }}
+              </strong>
+            </p>
+
+            <p>
+              Loại cuộc gọi:
+              <strong>
+                {{
+                  isVideoCall
+                    ? "Video"
+                    : "Thoại"
+                }}
+              </strong>
+            </p>
+
+            <button
+              class="btn btn-danger"
+              @click="hangupCall"
+            >
+              📵 Kết thúc
+            </button>
+
+          </div>
 
         </div>
 
+        <!-- ========================= -->
         <!-- VIDEO -->
+        <!-- ========================= -->
 
         <div
           v-if="
@@ -759,12 +1076,13 @@ const hangupCall = () => {
         >
 
           <h5>
-            Video
+            Video Call
           </h5>
 
           <div class="row">
 
             <div class="col-md-6">
+
               <p>
                 Camera của bạn
               </p>
@@ -776,12 +1094,16 @@ const hangupCall = () => {
                 playsinline
                 style="
                   width: 100%;
-                  background: #000;
+                  min-height: 200px;
+                  background: black;
+                  border-radius: 8px;
                 "
               ></video>
+
             </div>
 
             <div class="col-md-6">
+
               <p>
                 Camera người nhận
               </p>
@@ -792,16 +1114,65 @@ const hangupCall = () => {
                 playsinline
                 style="
                   width: 100%;
-                  background: #000;
+                  min-height: 200px;
+                  background: black;
+                  border-radius: 8px;
                 "
               ></video>
+
             </div>
 
           </div>
 
         </div>
 
+        <!-- ========================= -->
+        <!-- DEBUG -->
+        <!-- ========================= -->
+
+        <div
+          class="alert alert-secondary mt-4"
+        >
+
+          <strong>
+            Debug:
+          </strong>
+
+          <div>
+            User:
+            {{ username || "(chưa đăng nhập)" }}
+          </div>
+
+          <div>
+            Target:
+            {{ friendUsername || "(chưa nhập)" }}
+          </div>
+
+          <div>
+            Logged:
+            {{ loggedIn }}
+          </div>
+
+          <div>
+            Calling:
+            {{ isCalling }}
+          </div>
+
+          <div>
+            Incoming:
+            {{ hasIncomingCall }}
+          </div>
+
+          <div>
+            Video:
+            {{ isVideoCall }}
+          </div>
+
+        </div>
+
       </div>
+
     </div>
+
   </div>
 </template>
