@@ -7,8 +7,17 @@ use Firebase\JWT\JWT;
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->safeLoad();
 
-define('API_KEY_SID', $_ENV['API_KEY_SID']);
-define('API_KEY_SECRET', $_ENV['API_KEY_SECRET']);
+$apiKeySid = $_ENV['API_KEY_SID'] ?? getenv('API_KEY_SID');
+$apiKeySecret = $_ENV['API_KEY_SECRET'] ?? getenv('API_KEY_SECRET');
+
+if (!$apiKeySid || !$apiKeySecret) {
+    http_response_code(500);
+    header('Content-Type: application/json');
+    echo json_encode([
+        'error' => 'API_KEY_SID hoặc API_KEY_SECRET chưa được cấu hình'
+    ]);
+    exit;
+}
 
 if (!isset($_GET['u']) || empty($_GET['u'])) {
     $jwt = '';
@@ -16,18 +25,20 @@ if (!isset($_GET['u']) || empty($_GET['u'])) {
     $username = $_GET['u'];
     $now = time();
 
-    $header = array('cty' => 'stringee-api;v=1');
+    $header = [
+        'cty' => 'stringee-api;v=1'
+    ];
 
-    $payload = array(
-        'jti' => API_KEY_SID . '-' . $now,
-        'iss' => API_KEY_SID,
+    $payload = [
+        'jti' => $apiKeySid . '-' . $now,
+        'iss' => $apiKeySid,
         'exp' => $now + 3600,
         'userId' => $username
-    );
+    ];
 
     $jwt = JWT::encode(
         $payload,
-        API_KEY_SECRET,
+        $apiKeySecret,
         'HS256',
         null,
         $header
